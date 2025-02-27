@@ -26,13 +26,6 @@ struct Args {
     format: String,
 }
 
-// Update the sanitize function to handle both target names and image tags
-fn sanitize_docker_name(name: &str) -> String {
-    name.replace('@', "")
-        .replace('/', "-")
-        .to_lowercase()
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -64,7 +57,6 @@ async fn main() -> Result<()> {
     let mut bake_file = bake::BakeFile::new();
 
     let dockerfile_path = workspace.path.join("Dockerfile.bake");
-    let workspace_sanitized_name = sanitize_docker_name(&workspace.name);
 
     // TODO - reduce this duplication!!
     // Generate Dockerfile if it doesn't exist
@@ -75,14 +67,13 @@ async fn main() -> Result<()> {
         println!("Generated Dockerfile.bake for package {}", workspace.name);
     }
 
-    bake_file.add_target(workspace_sanitized_name.clone(), Target::new(&workspace.path, &workspace_root, "Dockerfile.bake".to_string(),
-            vec![format!("{}:{}", &workspace_sanitized_name, workspace.version)],
+    bake_file.add_target(workspace.name.clone(), Target::new(&workspace.path, &workspace_root, "Dockerfile.bake".to_string(),
+            vec![format!("{}:{}", &workspace.name, workspace.version)],
             vec![], HashMap::new()));
 
     // Add targets for each package
     for (name, package) in &workspace.packages {
         let dockerfile_path = package.path.join("Dockerfile.bake");
-        let sanitized_name = sanitize_docker_name(&name);
         
         // Generate Dockerfile if it doesn't exist
         if !dockerfile_path.exists() {
@@ -94,23 +85,23 @@ async fn main() -> Result<()> {
 
         let dependencies = workspace.get_dependencies(&name)
             .into_iter()
-            .map(|dep| sanitize_docker_name(&dep))
+            .map(|(dep, _)| dep)
             .collect::<Vec<_>>();
 
         let target = Target::new(
             &package.path,
             &workspace_root,
             "Dockerfile.bake".to_string(),
-            vec![format!("{}:{}", sanitized_name, package.version)],
+            vec![format!("{}:{}", name, package.version)],
             dependencies,
             { 
                 let mut map = HashMap::new();
-                map.insert(workspace_sanitized_name.clone(), format!("target:{}", workspace_sanitized_name));
+                map.insert(workspace.name.clone(), format!("target:{}", workspace.name));
                 map
              }
         );
 
-        bake_file.add_target(sanitized_name, target);
+        bake_file.add_target(name.clone(), target);
     }
 
     // Add a default group with all targets
@@ -118,7 +109,7 @@ async fn main() -> Result<()> {
         "default".to_string(),
         workspace.packages.clone()
             .keys()
-            .map(|name| sanitize_docker_name(name))
+            .map(|name| name.clone())
             .collect(),
     );
 
