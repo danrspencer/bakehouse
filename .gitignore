@@ -3,11 +3,6 @@
 **/*.rs.bk
 Cargo.lock
 
-# Docker
-Dockerfile.bake
-docker-bake.json
-docker-bake.hcl
-
 # IDE
 .idea/
 .vscode/

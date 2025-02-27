@@ -17,12 +17,12 @@ impl Target {
         // First get the package path relative to the workspace root
         let relative_path = package_path
             .strip_prefix(workspace_root)
-            .unwrap_or(package_path);
-
-        // Since docker-bake.json will be in the workspace root, we can use the relative path directly
-        let context = relative_path
+            .unwrap_or(package_path)
             .to_string_lossy()
             .into_owned();
+
+        // Remove any leading "./" and ensure paths are relative to workspace root
+        let context = relative_path.trim_start_matches("./").to_string();
 
         Self {
             context,
@@ -81,6 +81,17 @@ impl BakeFile {
 
     pub fn add_group(&mut self, name: String, targets: Vec<String>) {
         self.group.insert(name, Group { targets });
+    }
+
+    pub fn add_root_target(&mut self, workspace_root: &Path, node_version: String) {
+        let target = Target {
+            context: ".".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["workspace-root:latest".to_string()],
+            depends_on: vec![],
+        };
+
+        self.target.insert("root".to_string(), target);
     }
 
     pub fn to_hcl(&self) -> String {
@@ -394,5 +405,56 @@ target "sample-api" {
         assert!(hcl.contains(r#"target "sample-admin" {"#));
         assert!(hcl.contains(r#"context = "apps/api""#));
         assert!(hcl.contains(r#"context = "apps/admin""#));
+    }
+
+    #[test]
+    fn test_target_new_handles_sanitized_names_and_paths() {
+        let workspace_root = PathBuf::from("/workspace");
+        let package_path = PathBuf::from("/workspace/apps/api");
+        
+        let target = Target::new(
+            &package_path,
+            &workspace_root,
+            "Dockerfile.bake".to_string(),
+            vec!["sample-api:1.0.0".to_string()], // Sanitized name
+            vec!["sample-logger".to_string()],     // Sanitized dependency
+        );
+
+        assert_eq!(target.context, "apps/api");
+        
+        // Test that the generated HCL is valid
+        let hcl = target.to_hcl();
+        if let Value::Object(map) = hcl {
+            assert_eq!(map.get("context").unwrap(), &Value::String("apps/api".to_string()));
+            assert!(map.get("tags").unwrap().to_string().contains("sample-api:1.0.0"));
+            assert!(map.get("depends_on").unwrap().to_string().contains("sample-logger"));
+        }
+    }
+
+    #[test]
+    fn test_bakefile_with_root_target() {
+        let mut bake_file = BakeFile::new();
+        
+        // Add root target
+        bake_file.add_root_target(Path::new("/workspace"), "18".to_string());
+
+        // Add API target
+        let api_target = Target {
+            context: "apps/api".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["sample-api:1.0.0".to_string()],
+            depends_on: vec!["root".to_string(), "sample-logger".to_string()],
+        };
+        bake_file.add_target("sample-api".to_string(), api_target);
+
+        let hcl = bake_file.to_hcl();
+
+        // Verify root target exists
+        assert!(hcl.contains(r#"target "root" {"#));
+        assert!(hcl.contains(r#"context = ".""#));
+        assert!(hcl.contains(r#"tags = ["workspace-root:latest"]"#));
+
+        // Verify API target depends on root
+        assert!(hcl.contains(r#"depends_on = ["root", "sample-logger"]"#));
     }
 } 

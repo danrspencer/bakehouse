@@ -30,13 +30,19 @@ struct PnpmWorkspace {
     packages: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct PackageJson {
     name: String,
     version: String,
     dependencies: Option<std::collections::HashMap<String, String>>,
     #[serde(rename = "devDependencies")]
     dev_dependencies: Option<std::collections::HashMap<String, String>>,
+    engines: Option<Engines>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Engines {
+    node: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,6 +73,12 @@ async fn main() -> Result<()> {
     // Get absolute paths for both workspace and output
     let workspace_root = std::fs::canonicalize(&args.workspace)?;
     let output_path = workspace_root.join(&args.output);
+
+    // Read root package.json
+    let root_package_json: PackageJson = serde_json::from_str(
+        &std::fs::read_to_string(workspace_root.join("package.json"))
+            .context("Failed to read root package.json")?
+    )?;
 
     // Read pnpm-workspace.yaml - use workspace_root instead of args.workspace
     let workspace_file = workspace_root.join("pnpm-workspace.yaml");
@@ -100,14 +112,19 @@ async fn main() -> Result<()> {
         println!("- {} depends on: {:?}", name, deps);
     }
 
-    let dockerfile_generator = DockerfileGenerator::default();
+    let dockerfile_generator = DockerfileGenerator::new(root_package_json.clone());
     
     // Create bake file
     let mut bake_file = bake::BakeFile::new();
+
+    // Add root target first
+    let node_version = dockerfile_generator.get_node_version();
+    bake_file.add_root_target(&workspace_root, node_version);
     
     // Add targets for each package
     for (name, package) in workspace.get_packages() {
         let dockerfile_path = package.path.join("Dockerfile.bake");
+        let sanitized_name = sanitize_docker_name(&name);
         
         // Generate Dockerfile if it doesn't exist
         if !dockerfile_path.exists() {
@@ -119,16 +136,18 @@ async fn main() -> Result<()> {
         let dependencies = workspace.get_dependencies(name)
             .into_iter()
             .map(|dep| sanitize_docker_name(&dep))
-            .collect();
+            .collect::<Vec<_>>();
         
-        let sanitized_name = sanitize_docker_name(&name);
-        
+        // Add root as a dependency
+        let mut all_deps = vec!["root".to_string()];
+        all_deps.extend(dependencies);
+
         let target = bake::Target::new(
             &package.path,
             &workspace_root,
             "Dockerfile.bake".to_string(),
             vec![format!("{}:{}", sanitized_name, package.package_json.version)],
-            dependencies,
+            all_deps,
         );
 
         bake_file.add_target(sanitized_name, target);
