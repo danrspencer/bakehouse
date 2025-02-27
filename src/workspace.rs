@@ -1,28 +1,24 @@
 use anyhow::{Context, Result};
-use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use crate::resolvers::pnpm::PackageJson;
 
 #[derive(Debug)]
 pub struct Package {
     pub name: String,
     pub path: PathBuf,
-    pub package_json: crate::PackageJson,
+    pub package_json: PackageJson
 }
 
 pub struct Workspace {
     packages: HashMap<String, Package>,
-    dependency_graph: DiGraph<String, ()>,
-    node_indices: HashMap<String, NodeIndex>,
 }
 
 impl Workspace {
     pub fn new() -> Self {
         Self {
             packages: HashMap::new(),
-            dependency_graph: DiGraph::new(),
-            node_indices: HashMap::new(),
         }
     }
 
@@ -56,11 +52,7 @@ impl Workspace {
                     continue;
                 }
 
-                let package_json: crate::PackageJson = serde_json::from_str(
-                    &std::fs::read_to_string(entry.path())
-                        .context("Failed to read package.json")?,
-                )?;
-
+                let package_json = crate::resolvers::pnpm::load_package_json(entry.path())?;
                 println!("  Adding package: {}", package_json.name);
 
                 let package = Package {
@@ -75,51 +67,25 @@ impl Workspace {
         Ok(())
     }
 
-    pub fn build_dependency_graph(&mut self) {
-        // Clear existing graph
-        self.dependency_graph = DiGraph::new();
-        self.node_indices.clear();
-
-        // Add all packages as nodes
-        for package_name in self.packages.keys() {
-            let idx = self.dependency_graph.add_node(package_name.clone());
-            self.node_indices.insert(package_name.clone(), idx);
-        }
-
-        // Add dependency edges
-        let packages: Vec<_> = self.packages.values().collect();
-        for package in packages {
-            let from_idx = self.node_indices[&package.name];
-
-            // Add regular dependencies
-            if let Some(deps) = &package.package_json.dependencies {
-                for dep_name in deps.keys() {
-                    if let Some(to_idx) = self.node_indices.get(dep_name) {
-                        self.dependency_graph.add_edge(from_idx, *to_idx, ());
-                    }
-                }
-            }
-
-            // Add dev dependencies
-            if let Some(deps) = &package.package_json.dev_dependencies {
-                for dep_name in deps.keys() {
-                    if let Some(to_idx) = self.node_indices.get(dep_name) {
-                        self.dependency_graph.add_edge(from_idx, *to_idx, ());
-                    }
-                }
-            }
-        }
-    }
-
     pub fn get_packages(&self) -> &HashMap<String, Package> {
         &self.packages
     }
 
+    // Get dependencies directly from package.json
     pub fn get_dependencies(&self, package_name: &str) -> Vec<String> {
-        if let Some(idx) = self.node_indices.get(package_name) {
-            self.dependency_graph
-                .neighbors(*idx)
-                .map(|i| self.dependency_graph[i].clone())
+        if let Some(package) = self.packages.get(package_name) {
+            let mut deps = Vec::new();
+            
+            if let Some(ref dependencies) = package.package_json.dependencies {
+                deps.extend(dependencies.keys().cloned());
+            }
+            if let Some(ref dev_dependencies) = package.package_json.dev_dependencies {
+                deps.extend(dev_dependencies.keys().cloned());
+            }
+            
+            // Only return dependencies that exist in our workspace
+            deps.into_iter()
+                .filter(|dep| self.packages.contains_key(dep))
                 .collect()
         } else {
             vec![]

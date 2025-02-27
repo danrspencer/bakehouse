@@ -2,7 +2,8 @@ use std::path::Path;
 use tera::{Tera, Context};
 use std::fs;
 use anyhow::Result;
-use crate::PackageJson;
+
+use crate::resolvers::pnpm::PackageJson;
 
 pub struct DockerfileGenerator {
     pub pnpm_version: String,
@@ -89,8 +90,9 @@ impl DockerfileGenerator {
 
 #[cfg(test)]
 mod tests {
+    use crate::resolvers::pnpm::Engines;
+
     use super::*;
-    use crate::{PackageJson, Engines};
 
     #[test]
     fn test_dockerfile_uses_engines_node_version() {

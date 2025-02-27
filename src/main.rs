@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 mod bake;
 mod workspace;
 mod dockerfile;
+mod resolvers;
 
 use workspace::Workspace;
 use dockerfile::DockerfileGenerator;
+use resolvers::pnpm::model::{PackageJson, PnpmWorkspace};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -23,40 +25,6 @@ struct Args {
     /// Output format (hcl or json)
     #[arg(short, long, default_value = "hcl")]
     format: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PnpmWorkspace {
-    packages: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct PackageJson {
-    name: String,
-    version: String,
-    dependencies: Option<std::collections::HashMap<String, String>>,
-    #[serde(rename = "devDependencies")]
-    dev_dependencies: Option<std::collections::HashMap<String, String>>,
-    engines: Option<Engines>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Engines {
-    node: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Recipe {
-    name: String,
-    ingredients: Vec<Ingredient>,
-    preparation_time: u32, // in minutes
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Ingredient {
-    name: String,
-    quantity: f32,
-    unit: String,
 }
 
 // Update the sanitize function to handle both target names and image tags
@@ -75,18 +43,13 @@ async fn main() -> Result<()> {
     let output_path = workspace_root.join(&args.output);
 
     // Read root package.json
-    let root_package_json: PackageJson = serde_json::from_str(
-        &std::fs::read_to_string(workspace_root.join("package.json"))
-            .context("Failed to read root package.json")?
+    let root_package_json = resolvers::pnpm::load_package_json(
+        &workspace_root.join("package.json")
     )?;
 
-    // Read pnpm-workspace.yaml - use workspace_root instead of args.workspace
+    // Read pnpm-workspace.yaml
     let workspace_file = workspace_root.join("pnpm-workspace.yaml");
-    let workspace_content = std::fs::read_to_string(&workspace_file)
-        .context("Failed to read pnpm-workspace.yaml")?;
-    
-    let workspace_config: PnpmWorkspace = serde_yaml::from_str(&workspace_content)
-        .context("Failed to parse pnpm-workspace.yaml")?;
+    let workspace_config = resolvers::pnpm::load_workspace_config(&workspace_file)?;
 
     println!("Found workspace configuration:");
     for package_glob in &workspace_config.packages {
@@ -103,12 +66,10 @@ async fn main() -> Result<()> {
         println!("- {} at {}", name, package.path.display());
     }
 
-    workspace.build_dependency_graph();
-
     // Debug: Print dependencies
     println!("\nPackage dependencies:");
     for (name, _) in workspace.get_packages() {
-        let deps = workspace.get_dependencies(name);
+        let deps = workspace.get_dependencies(&name);
         println!("- {} depends on: {:?}", name, deps);
     }
 
@@ -133,7 +94,7 @@ async fn main() -> Result<()> {
             println!("Generated Dockerfile.bake for package {}", name);
         }
 
-        let dependencies = workspace.get_dependencies(name)
+        let dependencies = workspace.get_dependencies(&name)
             .into_iter()
             .map(|dep| sanitize_docker_name(&dep))
             .collect::<Vec<_>>();
