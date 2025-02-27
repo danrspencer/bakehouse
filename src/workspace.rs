@@ -17,35 +17,35 @@ pub trait WorkspaceInfo {
     fn packages(&self) -> Vec<&dyn PackageInfo>;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Package {
     pub name: String,
     pub path: PathBuf,
     pub version: String,
     pub dependencies: HashSet<String>,
-
     pub dockerfile_template: DockerfileTemplate
 }
 
 pub struct Workspace {
-    packages: HashMap<String, Package>,
+    pub name: String,
+    pub path: PathBuf,
+    pub version: String,
+    pub dockerfile_template: DockerfileTemplate,
+
+    pub packages: HashMap<String, Package>,
 }
 
 impl Workspace {
     pub fn new<W: WorkspaceInfo>(workspace_info: W) -> Self {
+        let root = workspace_info.root_package();
+
         let mut workspace = Self {
+            name: root.name().to_string(),
+            path: root.path().clone(),
+            version: root.version().to_string(),
+            dockerfile_template: root.dockerfile_template().clone(),
             packages: HashMap::new(),
         };
-
-        // Add root package
-        let root = workspace_info.root_package();
-        workspace.add_package(
-            root.name().to_string(),
-            root.path().clone(),
-            root.version().to_string(),
-            HashSet::new(),
-            root.dockerfile_template().clone()
-        );
 
         // Add workspace packages with root as dependency
         for package_info in workspace_info.packages() {
@@ -57,7 +57,7 @@ impl Workspace {
                 package_info.version().to_string(),
                 deps,
                 package_info.dockerfile_template().clone()
-            );
+            )
         }
 
         workspace
@@ -81,14 +81,11 @@ impl Workspace {
         self.packages.insert(name, package);
     }
 
-    pub fn get_packages(&self) -> &HashMap<String, Package> {
-        &self.packages
-    }
-
+    // TODO - I'm not sure we need this function
     pub fn get_dependencies(&self, package_name: &str) -> Vec<String> {
         if let Some(package) = self.packages.get(package_name) {
             package.dependencies.iter()
-                .filter(|dep| self.packages.contains_key(*dep))
+                .filter(|dep| self.packages.contains_key(*dep) || &self.name == *dep)
                 .cloned()
                 .collect()
         } else {

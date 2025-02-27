@@ -12,11 +12,11 @@ pub struct Target {
     pub tags: Vec<String>,
     pub depends_on: Vec<String>,
     pub dockerfile_contents: Option<String>,
-    pub contexts: Option<HashMap<String, String>>,
+    pub contexts: HashMap<String, String>,
 }
 
 impl Target {
-    pub fn new(package_path: &Path, workspace_root: &Path, dockerfile: String, tags: Vec<String>, depends_on: Vec<String>) -> Self {
+    pub fn new(package_path: &Path, workspace_root: &Path, dockerfile: String, tags: Vec<String>, depends_on: Vec<String>, contexts: HashMap<String, String>) -> Self {
         // First get the package path relative to the workspace root
         let relative_path = package_path
             .strip_prefix(workspace_root)
@@ -26,15 +26,6 @@ impl Target {
 
         // Remove any leading "./" and ensure paths are relative to workspace root
         let context = relative_path.trim_start_matches("./").to_string();
-
-        // For non-root targets, add the root context
-        let contexts = if context != "." {
-            let mut contexts = HashMap::new();
-            contexts.insert("root".to_string(), "target:root".to_string());
-            Some(contexts)
-        } else {
-            None
-        };
 
         Self {
             context,
@@ -58,8 +49,8 @@ impl Target {
         ));
 
         // Add contexts if present
-        if let Some(contexts) = &self.contexts {
-            let contexts_map = contexts.iter()
+        if !self.contexts.is_empty() {
+            let contexts_map = self.contexts.iter()
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
             map.insert("contexts".to_string(), Value::Object(contexts_map));
@@ -139,9 +130,9 @@ impl BakeFile {
             }
 
             // Add contexts if present
-            if let Some(contexts) = &target.contexts {
+            if !target.contexts.is_empty() {
                 output.push_str("  contexts = {\n");
-                for (key, value) in contexts {
+                for (key, value) in &target.contexts {
                     output.push_str(&format!("    {} = \"{}\"\n", key, value));
                 }
                 output.push_str("  }\n");

@@ -1,1 +1,1 @@
-FROM root
+FROM sample-monorepo

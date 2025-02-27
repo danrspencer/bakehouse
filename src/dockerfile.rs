@@ -17,7 +17,6 @@ impl DockerfileTemplate {
         tera.add_raw_template("dockerfile", &template_content)?;
         
         let mut context = Context::new();
-        println!("context_items: {:?}", self);
         for (key, value) in self.context_items.iter() {
             context.insert(key, value);
         }
