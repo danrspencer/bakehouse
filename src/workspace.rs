@@ -1,12 +1,20 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-// Define a trait for package information
+use crate::dockerfile::DockerfileTemplate;
+
+// Define traits for package information
 pub trait PackageInfo {
     fn name(&self) -> &str;
     fn path(&self) -> &PathBuf;
     fn version(&self) -> &str;
-    fn dependencies(&self) -> &std::collections::HashSet<String>;
+    fn dependencies(&self) -> &HashSet<String>;
+    fn dockerfile_template(&self) -> &DockerfileTemplate;
+}
+
+pub trait WorkspaceInfo {    
+    fn root_package(&self) -> &dyn PackageInfo;
+    fn packages(&self) -> Vec<&dyn PackageInfo>;
 }
 
 #[derive(Debug)]
@@ -14,7 +22,9 @@ pub struct Package {
     pub name: String,
     pub path: PathBuf,
     pub version: String,
-    pub dependencies: std::collections::HashSet<String>,
+    pub dependencies: HashSet<String>,
+
+    pub dockerfile_template: DockerfileTemplate
 }
 
 pub struct Workspace {
@@ -22,21 +32,31 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new<I, T>(packages: I) -> Self 
-    where 
-        I: IntoIterator<Item = T>,
-        T: PackageInfo,
-    {
+    pub fn new<W: WorkspaceInfo>(workspace_info: W) -> Self {
         let mut workspace = Self {
             packages: HashMap::new(),
         };
 
-        for package_info in packages {
+        // Add root package
+        let root = workspace_info.root_package();
+        workspace.add_package(
+            root.name().to_string(),
+            root.path().clone(),
+            root.version().to_string(),
+            HashSet::new(),
+            root.dockerfile_template().clone()
+        );
+
+        // Add workspace packages with root as dependency
+        for package_info in workspace_info.packages() {
+            let mut deps = package_info.dependencies().clone();
+            deps.insert(root.name().to_string());
             workspace.add_package(
                 package_info.name().to_string(),
                 package_info.path().clone(),
                 package_info.version().to_string(),
-                package_info.dependencies().clone(),
+                deps,
+                package_info.dockerfile_template().clone()
             );
         }
 
@@ -48,13 +68,15 @@ impl Workspace {
         name: String, 
         path: PathBuf, 
         version: String,
-        dependencies: std::collections::HashSet<String>
+        dependencies: HashSet<String>,
+        dockerfile_template: DockerfileTemplate,
     ) {
         let package = Package {
             name: name.clone(),
             path,
             version,
             dependencies,
+            dockerfile_template
         };
         self.packages.insert(name, package);
     }

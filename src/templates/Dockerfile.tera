@@ -1,3 +1,0 @@
-FROM root
-
-WORKDIR {{ workdir }}

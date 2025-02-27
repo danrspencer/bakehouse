@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 use walkdir::WalkDir;
 use std::collections::HashSet;
-use crate::workspace::PackageInfo;
+use crate::{dockerfile::DockerfileTemplate, workspace::{PackageInfo, WorkspaceInfo}};
 pub mod model;
 pub use model::*; // Change from pub use to private use
 
@@ -12,6 +12,8 @@ struct PnpmPackageInfo {
     version: String,
     path: PathBuf,
     dependencies: HashSet<String>,
+    engines: Option<Engines>,
+    dockerfile_template: DockerfileTemplate
 }
 
 impl PackageInfo for PnpmPackageInfo {
@@ -30,25 +32,57 @@ impl PackageInfo for PnpmPackageInfo {
     fn dependencies(&self) -> &HashSet<String> {
         &self.dependencies
     }
+
+    fn dockerfile_template(&self) -> &DockerfileTemplate {
+        &self.dockerfile_template
+    }
 }
 
 #[derive(Debug)]
 pub struct PnpmWorkspaceInfo {
-    pub root_package: PackageJson,
+    pub root_package: PnpmPackageInfo,
     packages: Vec<PnpmPackageInfo>,
 }
 
-impl PnpmWorkspaceInfo {
-    pub fn packages(&self) -> impl Iterator<Item = impl PackageInfo + '_> {
-        self.packages.iter().cloned()
+impl WorkspaceInfo for PnpmWorkspaceInfo {
+    fn root_package(&self) -> &dyn PackageInfo {
+        &self.root_package
+    }
+
+    fn packages(&self) -> Vec<&dyn PackageInfo> {
+        self.packages.iter()
+            .map(|p| p as &dyn PackageInfo)
+            .collect()
     }
 }
 
 pub fn load_workspace(workspace_root: &Path) -> Result<PnpmWorkspaceInfo> {
     // Load root package.json
-    let root_package = load_package_json(
-        &workspace_root.join("package.json")
-    )?;
+    let root_json = load_package_json(&workspace_root.join("package.json"))?;
+
+    // TODO - this is gross, lets do better!
+    let root_json_clone = root_json.clone();
+
+    let root_package = PnpmPackageInfo {
+        name: root_json.name,
+        version: root_json.version,
+        path: workspace_root.to_path_buf(),
+        dependencies: HashSet::new(),
+        engines: root_json.engines,
+        dockerfile_template: {
+            let mut context_items = HashMap::new();
+            context_items.insert(
+                "node_version".to_string(), 
+                root_json_clone.engines.and_then(|engines| engines.node).unwrap_or_default()
+            );
+            context_items.insert("pnpm_version".to_string(), "".to_string());
+            
+            DockerfileTemplate {
+                template_path: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/templates/Dockerfile.root.tera")),
+                context_items,
+            }
+        }
+    };
 
     // Load workspace configuration
     let workspace_file = workspace_root.join("pnpm-workspace.yaml");
@@ -120,6 +154,11 @@ fn discover_workspace_packages(
                 version: package_json.version,
                 path: package_dir.to_path_buf(),
                 dependencies,
+                engines: package_json.engines,
+                dockerfile_template: DockerfileTemplate {
+                    template_path: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/templates/Dockerfile.bake.tera")),
+                    context_items: HashMap::new(),
+                }
             });
         }
     }

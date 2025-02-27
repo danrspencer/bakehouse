@@ -1,15 +1,13 @@
-use anyhow::{Context, Result};
+use std::path::PathBuf;
+
+use anyhow::Result;
 use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 mod bake;
 mod workspace;
 mod dockerfile;
 mod resolvers;
 
 use workspace::Workspace;
-use dockerfile::DockerfileGenerator;
-use resolvers::pnpm::model::{PackageJson, PnpmWorkspace};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -45,8 +43,8 @@ async fn main() -> Result<()> {
     // Load the PNPM workspace
     let pnpm_workspace = resolvers::pnpm::load_workspace(&workspace_root)?;
 
-    // Create workspace with discovered packages
-    let workspace = Workspace::new(pnpm_workspace.packages());
+    // In main(), get the root package before moving pnpm_workspace into Workspace
+    let workspace = Workspace::new(pnpm_workspace);
 
     // Debug: Print discovered packages
     println!("\nDiscovered packages:");
@@ -60,15 +58,9 @@ async fn main() -> Result<()> {
         let deps = workspace.get_dependencies(&name);
         println!("- {} depends on: {:?}", name, deps);
     }
-
-    let dockerfile_generator = DockerfileGenerator::new(pnpm_workspace.root_package);
     
     // Create bake file
     let mut bake_file = bake::BakeFile::new();
-
-    // Add root target first
-    let node_version = dockerfile_generator.get_node_version();
-    bake_file.add_root_target(&workspace_root, node_version);
     
     // Add targets for each package
     for (name, package) in workspace.get_packages() {
@@ -77,8 +69,9 @@ async fn main() -> Result<()> {
         
         // Generate Dockerfile if it doesn't exist
         if !dockerfile_path.exists() {
-            let dockerfile_content = dockerfile_generator.generate(&package.path)?;
-            std::fs::write(&dockerfile_path, dockerfile_content)?;
+            // TODO - fix this clone
+            let dockerfile_content = package.dockerfile_template.generate_dockerfile();
+            std::fs::write(&dockerfile_path, dockerfile_content.unwrap())?;
             println!("Generated Dockerfile.bake for package {}", name);
         }
 
