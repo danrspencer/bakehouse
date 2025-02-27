@@ -5,11 +5,11 @@ WORKDIR /app
 # Copy workspace files
 COPY package.json ./
 COPY pnpm-workspace.yaml ./
-COPY pnpm-lock.yaml ./
+# COPY pnpm-lock.yaml ./
 
 # Install pnpm and dependencies
 RUN corepack enable && \
     corepack prepare pnpm@{{ pnpm_version }} --activate && \
-    pnpm install --frozen-lockfile
+    pnpm install
 
 CMD ["pnpm", "run", "start"] 
