@@ -1,8 +1,12 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use hcl::{Expression, Value};
+use hcl::Value;
 use indexmap::IndexMap;
+use std::io;
+use anyhow::Result;
+use crate::dockerfile::DockerfileGenerator;
+use std::fs;
 
 #[derive(Debug, Serialize)]
 pub struct Target {
@@ -10,6 +14,7 @@ pub struct Target {
     pub dockerfile: String,
     pub tags: Vec<String>,
     pub depends_on: Vec<String>,
+    pub dockerfile_contents: Option<String>,
 }
 
 impl Target {
@@ -29,6 +34,7 @@ impl Target {
             dockerfile,
             tags,
             depends_on,
+            dockerfile_contents: None,
         }
     }
 
@@ -39,6 +45,7 @@ impl Target {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec![],
             depends_on: vec![],
+            dockerfile_contents: None,
         }
     }
 
@@ -53,6 +60,18 @@ impl Target {
             self.depends_on.iter().map(|d| Value::String(d.clone())).collect()
         ));
         Value::Object(map)
+    }
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Self {
+            context: ".".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["workspace-root:latest".to_string()],
+            depends_on: vec![],
+            dockerfile_contents: None,
+        }
     }
 }
 
@@ -75,7 +94,13 @@ impl BakeFile {
         }
     }
 
-    pub fn add_target(&mut self, name: String, target: Target) {
+    pub fn add_target(&mut self, name: String, mut target: Target) {
+        // If we have dockerfile contents, write them to a file
+        if let Some(contents) = target.dockerfile_contents.take() {
+            let dockerfile_path = PathBuf::from(&target.context).join(&target.dockerfile);
+            fs::write(dockerfile_path, contents).expect("Failed to write Dockerfile");
+        }
+        
         self.target.insert(name, target);
     }
 
@@ -83,15 +108,22 @@ impl BakeFile {
         self.group.insert(name, Group { targets });
     }
 
-    pub fn add_root_target(&mut self, workspace_root: &Path, node_version: String) {
+    pub fn add_root_target(&mut self, workspace_root: &Path, node_version: String) -> Result<()> {
+        let dockerfile_generator = DockerfileGenerator::default();
+        let dockerfile = dockerfile_generator.generate(workspace_root)?;
+
         let target = Target {
-            context: ".".to_string(),
-            dockerfile: "Dockerfile.bake".to_string(),
-            tags: vec!["workspace-root:latest".to_string()],
-            depends_on: vec![],
+            context: ".".into(),
+            dockerfile: "Dockerfile.bake".into(),
+            dockerfile_contents: Some(dockerfile.clone()),
+            ..Default::default()
         };
 
-        self.target.insert("root".to_string(), target);
+        // Write the Dockerfile contents
+        fs::write(workspace_root.join("Dockerfile.bake"), dockerfile)?;
+        
+        self.target.insert("root".into(), target);
+        Ok(())
     }
 
     pub fn to_hcl(&self) -> String {
@@ -308,6 +340,7 @@ mod tests {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec!["sample-api:1.0.0".to_string()],
             depends_on: vec!["sample-logger".to_string()],
+            dockerfile_contents: None,
         };
 
         let hcl = target.to_hcl();
@@ -343,6 +376,7 @@ mod tests {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec!["sample-api:1.0.0".to_string()],
             depends_on: vec!["sample-logger".to_string()],
+            dockerfile_contents: None,
         };
         bake_file.add_target("sample-api".to_string(), target);
 
@@ -378,6 +412,7 @@ target "sample-api" {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec!["sample-api:1.0.0".to_string()],
             depends_on: vec!["sample-logger".to_string()],
+            dockerfile_contents: None,
         };
         bake_file.add_target("sample-api".to_string(), api_target);
 
@@ -387,6 +422,7 @@ target "sample-api" {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec!["sample-admin:1.0.0".to_string()],
             depends_on: vec!["sample-types".to_string()],
+            dockerfile_contents: None,
         };
         bake_file.add_target("sample-admin".to_string(), admin_target);
 
@@ -436,7 +472,7 @@ target "sample-api" {
         let mut bake_file = BakeFile::new();
         
         // Add root target
-        bake_file.add_root_target(Path::new("/workspace"), "18".to_string());
+        bake_file.add_root_target(Path::new("/workspace"), "18".to_string()).unwrap();
 
         // Add API target
         let api_target = Target {
@@ -444,6 +480,7 @@ target "sample-api" {
             dockerfile: "Dockerfile.bake".to_string(),
             tags: vec!["sample-api:1.0.0".to_string()],
             depends_on: vec!["root".to_string(), "sample-logger".to_string()],
+            dockerfile_contents: None,
         };
         bake_file.add_target("sample-api".to_string(), api_target);
 

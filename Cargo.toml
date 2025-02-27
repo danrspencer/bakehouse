@@ -16,6 +16,7 @@ petgraph = "0.6"
 walkdir = "2.4"
 hcl-rs = "0.16.6"
 indexmap = "2.1"
+tera = "1.19"
 
 [dev-dependencies]
 assert_fs = "1.1"

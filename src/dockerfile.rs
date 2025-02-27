@@ -1,4 +1,6 @@
 use std::path::Path;
+use tera::{Tera, Context};
+use std::fs;
 use anyhow::Result;
 use crate::PackageJson;
 
@@ -33,58 +35,55 @@ impl DockerfileGenerator {
             .unwrap_or_else(|| "20".to_string())
     }
 
+    fn is_root_package(&self, package_path: &Path) -> bool {
+        package_path.join("pnpm-workspace.yaml").exists()
+    }
+
     pub fn generate(&self, package_path: &Path) -> Result<String> {
         let node_version = self.get_node_version();
-        let dockerfile = format!(
-            r#"FROM node:{node_version}-alpine as builder
+        let template_name = if self.is_root_package(package_path) {
+            "Dockerfile.root.tera"
+        } else {
+            "Dockerfile.tera"
+        };
+        
+        let template_path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/templates/");
+        let template_content = fs::read_to_string(template_path.to_owned() + template_name)?;
+        
+        let mut tera = Tera::default();
+        tera.add_raw_template("dockerfile", &template_content)?;
+        
+        let mut context = Context::new();
+        context.insert("node_version", &node_version);
+        context.insert("pnpm_version", &self.pnpm_version);
+        context.insert("workdir", "/app");
+        
+        if !self.is_root_package(package_path) {
+            let package_name = package_path
+                .strip_prefix(package_path.parent().unwrap().parent().unwrap())?
+                .to_string_lossy();
+                
+            context.insert("package_name", &package_name);
+            
+            let copy_files = vec![
+                "pnpm-lock.yaml",
+                "pnpm-workspace.yaml",
+                "package.json",
+                "packages/*/package.json",
+                "apps/*/package.json",
+                ".",
+            ];
+            context.insert("copy_files", &copy_files);
+            
+            let run_commands = vec![
+                format!("corepack enable && corepack prepare pnpm@{} --activate", self.pnpm_version),
+                "pnpm install --frozen-lockfile".to_string(),
+                format!("pnpm --filter {} build", package_name),
+            ];
+            context.insert("run_commands", &run_commands);
+        }
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@{pnpm_version} --activate
-
-WORKDIR /app
-
-# Copy root package.json and pnpm workspace files
-COPY pnpm-lock.yaml ./
-COPY pnpm-workspace.yaml ./
-COPY package.json ./
-
-# Copy all package.json files
-COPY packages/*/package.json ./packages/
-COPY apps/*/package.json ./apps/
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Copy source files
-COPY . .
-
-# Build the package
-RUN pnpm --filter {package_name} build
-
-FROM node:{node_version}-alpine
-
-WORKDIR /app
-
-# Copy built assets from builder
-COPY --from=builder /app/{package_name}/dist ./dist
-COPY --from=builder /app/{package_name}/package.json ./
-
-# Install production dependencies
-RUN corepack enable && \
-    corepack prepare pnpm@{pnpm_version} --activate && \
-    pnpm install --prod
-
-CMD ["node", "dist/index.js"]
-"#,
-            node_version = node_version,
-            pnpm_version = self.pnpm_version,
-            package_name = package_path
-                .strip_prefix(package_path.parent().unwrap().parent().unwrap())
-                .unwrap()
-                .to_string_lossy()
-        );
-
-        Ok(dockerfile)
+        Ok(tera.render("dockerfile", &context)?)
     }
 }
 

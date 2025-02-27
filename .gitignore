@@ -15,4 +15,5 @@ Cargo.lock
 
 # Project specific
 /sample/**/dist/
-/sample/**/node_modules/ 
+/sample/**/node_modules/
+**/*.tera.compiled 
