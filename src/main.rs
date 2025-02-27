@@ -42,24 +42,20 @@ async fn main() -> Result<()> {
     let workspace_root = std::fs::canonicalize(&args.workspace)?;
     let output_path = workspace_root.join(&args.output);
 
-    // Read root package.json
-    let root_package_json = resolvers::pnpm::load_package_json(
-        &workspace_root.join("package.json")
-    )?;
+    // Load the PNPM workspace
+    let pnpm_workspace = resolvers::pnpm::load_workspace(&workspace_root)?;
 
-    // Read pnpm-workspace.yaml
-    let workspace_file = workspace_root.join("pnpm-workspace.yaml");
-    let workspace_config = resolvers::pnpm::load_workspace_config(&workspace_file)?;
-
-    println!("Found workspace configuration:");
-    for package_glob in &workspace_config.packages {
-        println!("- {}", package_glob);
+    // Create workspace and add discovered packages
+    let mut workspace = Workspace::new();
+    for package_info in pnpm_workspace.packages {
+        workspace.add_package(
+            package_info.name,
+            package_info.path,
+            package_info.version,
+            package_info.dependencies,
+        );
     }
 
-    // Discover packages and build dependency graph - use workspace_root
-    let mut workspace = Workspace::new();
-    workspace.discover_packages(&workspace_root, &workspace_config.packages)?;
-    
     // Debug: Print discovered packages
     println!("\nDiscovered packages:");
     for (name, package) in workspace.get_packages() {
@@ -73,7 +69,7 @@ async fn main() -> Result<()> {
         println!("- {} depends on: {:?}", name, deps);
     }
 
-    let dockerfile_generator = DockerfileGenerator::new(root_package_json.clone());
+    let dockerfile_generator = DockerfileGenerator::new(pnpm_workspace.root_package);
     
     // Create bake file
     let mut bake_file = bake::BakeFile::new();
@@ -107,7 +103,7 @@ async fn main() -> Result<()> {
             &package.path,
             &workspace_root,
             "Dockerfile.bake".to_string(),
-            vec![format!("{}:{}", sanitized_name, package.package_json.version)],
+            vec![format!("{}:{}", sanitized_name, package.version)],
             all_deps,
         );
 
