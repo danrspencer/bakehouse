@@ -2,22 +2,46 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use std::collections::HashSet;
+use crate::workspace::PackageInfo;
 pub mod model;
-pub use model::*; // Re-export the types from model
+pub use model::*; // Change from pub use to private use
+
+#[derive(Debug, Clone)]
+struct PnpmPackageInfo {
+    name: String,
+    version: String,
+    path: PathBuf,
+    dependencies: HashSet<String>,
+}
+
+impl PackageInfo for PnpmPackageInfo {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
+
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn dependencies(&self) -> &HashSet<String> {
+        &self.dependencies
+    }
+}
 
 #[derive(Debug)]
 pub struct PnpmWorkspaceInfo {
     pub root_package: PackageJson,
-    pub workspace_config: PnpmWorkspace,
-    pub packages: Vec<PackageInfo>,
+    packages: Vec<PnpmPackageInfo>,
 }
 
-#[derive(Debug)]
-pub struct PackageInfo {
-    pub name: String,
-    pub version: String,
-    pub path: PathBuf,
-    pub dependencies: HashSet<String>,
+impl PnpmWorkspaceInfo {
+    pub fn packages(&self) -> impl Iterator<Item = impl PackageInfo + '_> {
+        self.packages.iter().cloned()
+    }
 }
 
 pub fn load_workspace(workspace_root: &Path) -> Result<PnpmWorkspaceInfo> {
@@ -40,15 +64,14 @@ pub fn load_workspace(workspace_root: &Path) -> Result<PnpmWorkspaceInfo> {
 
     Ok(PnpmWorkspaceInfo {
         root_package,
-        workspace_config,
         packages,
     })
 }
 
-pub fn discover_workspace_packages(
+fn discover_workspace_packages(
     workspace_root: &Path,
     package_globs: &[String]
-) -> Result<Vec<PackageInfo>> {
+) -> Result<Vec<PnpmPackageInfo>> {
     let mut packages = Vec::new();
     
     println!("\nSearching for packages in: {}", workspace_root.display());
@@ -92,7 +115,7 @@ pub fn discover_workspace_packages(
                 dependencies.extend(dev_deps.keys().cloned());
             }
 
-            packages.push(PackageInfo {
+            packages.push(PnpmPackageInfo {
                 name: package_json.name,
                 version: package_json.version,
                 path: package_dir.to_path_buf(),
@@ -112,7 +135,7 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-pub fn load_package_json(path: &Path) -> Result<PackageJson> {
+fn load_package_json(path: &Path) -> Result<PackageJson> {
     let content = std::fs::read_to_string(path)
         .context("Failed to read package.json")?;
     
@@ -120,7 +143,7 @@ pub fn load_package_json(path: &Path) -> Result<PackageJson> {
         .context("Failed to parse package.json")
 }
 
-pub fn load_workspace_config(path: &Path) -> Result<PnpmWorkspace> {
+fn load_workspace_config(path: &Path) -> Result<PnpmWorkspace> {
     let content = std::fs::read_to_string(path)
         .context("Failed to read pnpm-workspace.yaml")?;
     

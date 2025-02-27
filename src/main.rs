@@ -45,16 +45,8 @@ async fn main() -> Result<()> {
     // Load the PNPM workspace
     let pnpm_workspace = resolvers::pnpm::load_workspace(&workspace_root)?;
 
-    // Create workspace and add discovered packages
-    let mut workspace = Workspace::new();
-    for package_info in pnpm_workspace.packages {
-        workspace.add_package(
-            package_info.name,
-            package_info.path,
-            package_info.version,
-            package_info.dependencies,
-        );
-    }
+    // Create workspace with discovered packages
+    let workspace = Workspace::new(pnpm_workspace.packages());
 
     // Debug: Print discovered packages
     println!("\nDiscovered packages:");

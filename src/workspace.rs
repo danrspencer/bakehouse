@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use anyhow::Result;
+
+// Define a trait for package information
+pub trait PackageInfo {
+    fn name(&self) -> &str;
+    fn path(&self) -> &PathBuf;
+    fn version(&self) -> &str;
+    fn dependencies(&self) -> &std::collections::HashSet<String>;
+}
 
 #[derive(Debug)]
 pub struct Package {
@@ -15,13 +22,29 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new() -> Self {
-        Self {
+    pub fn new<I, T>(packages: I) -> Self 
+    where 
+        I: IntoIterator<Item = T>,
+        T: PackageInfo,
+    {
+        let mut workspace = Self {
             packages: HashMap::new(),
+        };
+
+        for package_info in packages {
+            workspace.add_package(
+                package_info.name().to_string(),
+                package_info.path().clone(),
+                package_info.version().to_string(),
+                package_info.dependencies().clone(),
+            );
         }
+
+        workspace
     }
 
-    pub fn add_package(&mut self, 
+    // Keep this as an internal method
+    fn add_package(&mut self, 
         name: String, 
         path: PathBuf, 
         version: String,
