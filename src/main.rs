@@ -17,8 +17,12 @@ struct Args {
     workspace: PathBuf,
 
     /// Output path for the Docker Bake file (relative to workspace root)
-    #[arg(short, long, default_value = "docker-bake.json")]
+    #[arg(short, long, default_value = "docker-bake.hcl")]
     output: PathBuf,
+
+    /// Output format (hcl or json)
+    #[arg(short, long, default_value = "hcl")]
+    format: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -140,7 +144,12 @@ async fn main() -> Result<()> {
     );
 
     // Write the bake file to the workspace root
-    let bake_content = serde_json::to_string_pretty(&bake_file)?;
+    let bake_content = match args.format.as_str() {
+        "json" => serde_json::to_string_pretty(&bake_file)?,
+        "hcl" => bake_file.to_hcl(),
+        _ => return Err(anyhow::anyhow!("Unsupported format: {}", args.format)),
+    };
+    
     std::fs::write(&output_path, bake_content)?;
     
     println!("Generated Docker Bake file at: {}", output_path.display());

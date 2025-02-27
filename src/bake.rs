@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use hcl::{Expression, Value};
+use indexmap::IndexMap;
 
 #[derive(Debug, Serialize)]
 pub struct Target {
@@ -39,6 +41,19 @@ impl Target {
             depends_on: vec![],
         }
     }
+
+    fn to_hcl(&self) -> Value {
+        let mut map = IndexMap::new();
+        map.insert("context".to_string(), Value::String(self.context.clone()));
+        map.insert("dockerfile".to_string(), Value::String(self.dockerfile.clone()));
+        map.insert("tags".to_string(), Value::Array(
+            self.tags.iter().map(|t| Value::String(t.clone())).collect()
+        ));
+        map.insert("depends_on".to_string(), Value::Array(
+            self.depends_on.iter().map(|d| Value::String(d.clone())).collect()
+        ));
+        Value::Object(map)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -66,6 +81,48 @@ impl BakeFile {
 
     pub fn add_group(&mut self, name: String, targets: Vec<String>) {
         self.group.insert(name, Group { targets });
+    }
+
+    pub fn to_hcl(&self) -> String {
+        let mut output = String::new();
+
+        // Add groups
+        for (name, group) in &self.group {
+            output.push_str(&format!("group \"{}\" {{\n", name));
+            output.push_str("  targets = [");
+            output.push_str(&group.targets.iter()
+                .map(|t| format!("\"{}\"", t))
+                .collect::<Vec<_>>()
+                .join(", "));
+            output.push_str("]\n}\n\n");
+        }
+
+        // Add targets
+        for (name, target) in &self.target {
+            output.push_str(&format!("target \"{}\" {{\n", name));
+            output.push_str(&format!("  context = \"{}\"\n", target.context));
+            output.push_str(&format!("  dockerfile = \"{}\"\n", target.dockerfile));
+            
+            output.push_str("  tags = [");
+            output.push_str(&target.tags.iter()
+                .map(|t| format!("\"{}\"", t))
+                .collect::<Vec<_>>()
+                .join(", "));
+            output.push_str("]\n");
+
+            if !target.depends_on.is_empty() {
+                output.push_str("  depends_on = [");
+                output.push_str(&target.depends_on.iter()
+                    .map(|d| format!("\"{}\"", d))
+                    .collect::<Vec<_>>()
+                    .join(", "));
+                output.push_str("]\n");
+            }
+            
+            output.push_str("}\n\n");
+        }
+
+        output
     }
 }
 
@@ -231,5 +288,111 @@ mod tests {
             "services/web",
             "Context should always be relative to workspace root"
         );
+    }
+
+    #[test]
+    fn test_target_to_hcl() {
+        let target = Target {
+            context: "apps/api".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["sample-api:1.0.0".to_string()],
+            depends_on: vec!["sample-logger".to_string()],
+        };
+
+        let hcl = target.to_hcl();
+        
+        // Verify the HCL structure
+        if let Value::Object(map) = hcl {
+            assert_eq!(map.get("context").unwrap(), &Value::String("apps/api".to_string()));
+            assert_eq!(map.get("dockerfile").unwrap(), &Value::String("Dockerfile.bake".to_string()));
+            
+            if let Value::Array(tags) = map.get("tags").unwrap() {
+                assert_eq!(tags[0], Value::String("sample-api:1.0.0".to_string()));
+            } else {
+                panic!("tags should be an array");
+            }
+
+            if let Value::Array(deps) = map.get("depends_on").unwrap() {
+                assert_eq!(deps[0], Value::String("sample-logger".to_string()));
+            } else {
+                panic!("depends_on should be an array");
+            }
+        } else {
+            panic!("target.to_hcl() should return an Object");
+        }
+    }
+
+    #[test]
+    fn test_bakefile_to_hcl() {
+        let mut bake_file = BakeFile::new();
+        
+        // Add a target
+        let target = Target {
+            context: "apps/api".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["sample-api:1.0.0".to_string()],
+            depends_on: vec!["sample-logger".to_string()],
+        };
+        bake_file.add_target("sample-api".to_string(), target);
+
+        // Add a group
+        bake_file.add_group("default".to_string(), vec!["sample-api".to_string()]);
+
+        let hcl = bake_file.to_hcl();
+
+        // Expected HCL output
+        let expected = r#"group "default" {
+  targets = ["sample-api"]
+}
+
+target "sample-api" {
+  context = "apps/api"
+  dockerfile = "Dockerfile.bake"
+  tags = ["sample-api:1.0.0"]
+  depends_on = ["sample-logger"]
+}
+
+"#;
+
+        assert_eq!(hcl, expected);
+    }
+
+    #[test]
+    fn test_bakefile_to_hcl_multiple_targets() {
+        let mut bake_file = BakeFile::new();
+        
+        // Add API target
+        let api_target = Target {
+            context: "apps/api".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["sample-api:1.0.0".to_string()],
+            depends_on: vec!["sample-logger".to_string()],
+        };
+        bake_file.add_target("sample-api".to_string(), api_target);
+
+        // Add Admin target
+        let admin_target = Target {
+            context: "apps/admin".to_string(),
+            dockerfile: "Dockerfile.bake".to_string(),
+            tags: vec!["sample-admin:1.0.0".to_string()],
+            depends_on: vec!["sample-types".to_string()],
+        };
+        bake_file.add_target("sample-admin".to_string(), admin_target);
+
+        // Add default group with both targets
+        bake_file.add_group(
+            "default".to_string(), 
+            vec!["sample-api".to_string(), "sample-admin".to_string()]
+        );
+
+        let hcl = bake_file.to_hcl();
+
+        // Verify the HCL contains both targets and the group
+        assert!(hcl.contains(r#"group "default" {"#));
+        assert!(hcl.contains(r#"targets = ["sample-api", "sample-admin"]"#));
+        assert!(hcl.contains(r#"target "sample-api" {"#));
+        assert!(hcl.contains(r#"target "sample-admin" {"#));
+        assert!(hcl.contains(r#"context = "apps/api""#));
+        assert!(hcl.contains(r#"context = "apps/admin""#));
     }
 } 
