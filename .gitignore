@@ -1,0 +1,22 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Docker
+Dockerfile.bake
+docker-bake.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.env
+
+# Project specific
+/sample/**/dist/
+/sample/**/node_modules/ 

@@ -1,0 +1,11 @@
+{
+  "name": "@sample/types",
+  "version": "1.0.0",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+} 
