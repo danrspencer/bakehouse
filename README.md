@@ -1,25 +1,36 @@
 # Bakehouse 🍞
 
-A CLI tool designed to generate Docker Bake files for PNPM monorepos. Bakehouse simplifies the containerization process for complex monorepo projects by automatically generating Docker Bake configurations and Dockerfiles.
+A CLI tool that leverages Docker BuildKit and Bake to create highly optimized, cache-efficient build systems for monorepos. Currently focused on PNPM workspaces, with plans to expand to other package managers and languages.
+
+## Why Bakehouse?
+
+Building monorepos in Docker can be challenging:
+- Complex dependency graphs need careful handling
+- Build caching is critical for performance
+- Traditional Dockerfile approaches often rebuild more than necessary
+
+Bakehouse solves these problems by:
+- Automatically analyzing your workspace dependency graph
+- Generating optimized Docker Bake configurations that maximize cache usage
+- Creating BuildKit-optimized Dockerfiles for each package
+- Ensuring dependencies are built only when necessary
 
 ## Features
 
-- Automatic Docker Bake file generation for PNPM workspaces
-- Smart dependency resolution for monorepo packages
-- Template-based Dockerfile generation
-- Support for custom build configurations
-- Built with Rust for maximum performance and reliability
+- **Intelligent Dependency Analysis**: Automatically maps your monorepo's dependency graph
+- **BuildKit Optimization**: Generates Dockerfiles that leverage BuildKit's advanced caching features
+- **Bake Configuration**: Creates HCL-based Docker Bake files for sophisticated multi-stage builds
+- **Cache Efficiency**: Ensures each package's build cache can be reused by its dependents
+- **PNPM Support**: Currently optimized for PNPM workspaces (more package managers coming soon)
 
 ## Prerequisites
 
-- Rust (latest stable version)
-- Docker with Buildx support
-- PNPM package manager
+- Docker with BuildKit support enabled
+- PNPM for package management
+- Rust (for building from source)
 - Just command runner (optional, for convenience commands)
 
 ## Installation
-
-Clone the repository and build from source:
 
 ```bash
 git clone https://github.com/yourusername/bakehouse.git
@@ -38,11 +49,26 @@ bakehouse --workspace ./path/to/your/workspace
 ```
 
 This will:
-1. Scan your PNPM workspace
-2. Generate appropriate Dockerfile.bake files for each package
-3. Create a docker-bake.hcl file with the build configuration
+1. Analyze your workspace dependency graph
+2. Generate BuildKit-optimized Dockerfiles for each package
+3. Create a `docker-bake.hcl` file with the optimal build configuration
 
-### Using Just Commands
+### Building Your Project
+
+Once Bakehouse has generated the configuration:
+
+```bash
+# Build all packages
+docker buildx bake
+
+# Build a specific package (will automatically build dependencies)
+docker buildx bake package-name
+
+# Build with maximum parallelization
+docker buildx bake --progress=plain
+```
+
+### Development Commands
 
 The project includes several convenience commands via Just:
 
@@ -53,12 +79,22 @@ just
 # Generate bake files for the sample project
 just generate-sample
 
-# Clean up generated files in the sample folder
+# Clean up generated files
 just clean-sample
 
 # Generate and build the sample project
 just bake-sample
 ```
+
+## How It Works
+
+1. **Workspace Analysis**: Bakehouse scans your monorepo to understand the dependency relationships between packages
+2. **Dockerfile Generation**: Creates optimized Dockerfiles that properly handle dependencies and maximize cache usage
+3. **Bake Configuration**: Generates a `docker-bake.hcl` file that:
+   - Defines build targets for each package
+   - Sets up proper dependency ordering
+   - Configures BuildKit's advanced caching features
+   - Enables parallel building where possible
 
 ## Project Structure
 
@@ -71,15 +107,13 @@ just bake-sample
 └── README.md      # This file
 ```
 
-## Development
+## Future Plans
 
-The project is built with Rust and uses several key dependencies:
-
-- `tokio` - Async runtime
-- `serde` - Serialization/deserialization
-- `clap` - Command line argument parsing
-- `tera` - Template rendering
-- `hcl-rs` - HCL file parsing/generation
+- Support for additional package managers (Yarn, npm, pnpm)
+- Language-specific optimizations
+- Custom build stage templates
+- Remote cache configuration
+- Build matrix support
 
 ## Contributing
 
@@ -87,8 +121,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[Add your chosen license here]
-
-## Support
-
-[Add support information here] 
+[MIT License](LICENSE) 
