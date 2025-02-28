@@ -7,10 +7,12 @@ use anyhow::Result;
 use bake::Target;
 use clap::Parser;
 mod bake;
+mod config;
 mod dockerfile;
 mod resolvers;
 mod workspace;
 
+use config::BakehouseConfig;
 use workspace::Workspace;
 
 #[derive(Parser, Debug)]

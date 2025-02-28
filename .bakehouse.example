@@ -1,0 +1,16 @@
+# The default output format for docker-bake files (hcl or json)
+output_format: hcl
+
+# Custom Dockerfile template mappings
+# The key is a glob pattern that matches package paths
+# The value is the path to the Dockerfile template to use
+templates:
+  # Use a specific template for all packages in the apps directory
+  "apps/*": "./templates/app.dockerfile"
+  
+  # Use a different template for library packages
+  "packages/*": "./templates/lib.dockerfile"
+  
+  # You can use more specific patterns too
+  "apps/api-*": "./templates/api.dockerfile"
+  "packages/shared-*": "./templates/shared.dockerfile" 
