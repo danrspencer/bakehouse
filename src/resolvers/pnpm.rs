@@ -1,8 +1,14 @@
+use crate::{
+    dockerfile::DockerfileTemplate,
+    workspace::{PackageInfo, WorkspaceInfo},
+};
 use anyhow::{Context, Result};
-use std::{collections::HashMap, path::{Path, PathBuf}};
-use walkdir::WalkDir;
 use std::collections::HashSet;
-use crate::{dockerfile::DockerfileTemplate, workspace::{PackageInfo, WorkspaceInfo}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+use walkdir::WalkDir;
 pub mod model;
 pub use model::*; // Change from pub use to private use
 
@@ -13,7 +19,7 @@ struct PnpmPackageInfo {
     path: PathBuf,
     dependencies: HashSet<String>,
     engines: Option<Engines>,
-    dockerfile_template: DockerfileTemplate
+    dockerfile_template: DockerfileTemplate,
 }
 
 impl PackageInfo for PnpmPackageInfo {
@@ -50,7 +56,8 @@ impl WorkspaceInfo for PnpmWorkspaceInfo {
     }
 
     fn packages(&self) -> Vec<&dyn PackageInfo> {
-        self.packages.iter()
+        self.packages
+            .iter()
             .map(|p| p as &dyn PackageInfo)
             .collect()
     }
@@ -70,18 +77,21 @@ pub fn load_workspace(workspace_root: &Path) -> Result<PnpmWorkspaceInfo> {
         dependencies: HashSet::new(),
         engines: root_json.engines,
         dockerfile_template: {
-            let mut context_items = HashMap::new();
-            context_items.insert(
-                "node_version".to_string(), 
-                root_json_clone.engines.and_then(|engines| engines.node).unwrap_or_default()
+            let mut template = DockerfileTemplate::new(&PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/templates/Dockerfile.root.tera"
+            )))
+            .unwrap();
+            template.context.insert(
+                "node_version",
+                &root_json_clone
+                    .engines
+                    .and_then(|engines| engines.node)
+                    .unwrap_or_default(),
             );
-            context_items.insert("pnpm_version".to_string(), "".to_string());
-            
-            DockerfileTemplate {
-                template_path: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/templates/Dockerfile.root.tera")),
-                context_items,
-            }
-        }
+            template.context.insert("pnpm_version".to_string(), "");
+            template
+        },
     };
 
     // Load workspace configuration
@@ -104,10 +114,10 @@ pub fn load_workspace(workspace_root: &Path) -> Result<PnpmWorkspaceInfo> {
 
 fn discover_workspace_packages(
     workspace_root: &Path,
-    package_globs: &[String]
+    package_globs: &[String],
 ) -> Result<Vec<PnpmPackageInfo>> {
     let mut packages = Vec::new();
-    
+
     println!("\nSearching for packages in: {}", workspace_root.display());
     println!("Using globs: {:?}", package_globs);
 
@@ -120,15 +130,19 @@ fn discover_workspace_packages(
         if entry.file_name() == "package.json" {
             let package_dir = entry.path().parent().unwrap();
             println!("Found package.json in: {}", package_dir.display());
-            
+
             // Check if the package matches any of our globs
             let relative_path = package_dir.strip_prefix(workspace_root).unwrap();
             let matches = package_globs.iter().any(|glob| {
                 let result = glob::Pattern::new(glob)
                     .unwrap()
                     .matches_path(relative_path);
-                println!("  Checking glob '{}' against '{}': {}", 
-                    glob, relative_path.display(), result);
+                println!(
+                    "  Checking glob '{}' against '{}': {}",
+                    glob,
+                    relative_path.display(),
+                    result
+                );
                 result
             });
 
@@ -155,14 +169,15 @@ fn discover_workspace_packages(
                 path: package_dir.to_path_buf(),
                 dependencies,
                 engines: package_json.engines,
-                dockerfile_template: DockerfileTemplate {
-                    template_path: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/templates/Dockerfile.bake.tera")),
-                    context_items: HashMap::new(),
-                }
+                dockerfile_template: DockerfileTemplate::new(&PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/templates/Dockerfile.bake.tera"
+                )))
+                .unwrap(),
             });
         }
     }
-    
+
     Ok(packages)
 }
 
@@ -175,17 +190,13 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 }
 
 fn load_package_json(path: &Path) -> Result<PackageJson> {
-    let content = std::fs::read_to_string(path)
-        .context("Failed to read package.json")?;
-    
-    serde_json::from_str(&content)
-        .context("Failed to parse package.json")
+    let content = std::fs::read_to_string(path).context("Failed to read package.json")?;
+
+    serde_json::from_str(&content).context("Failed to parse package.json")
 }
 
 fn load_workspace_config(path: &Path) -> Result<PnpmWorkspace> {
-    let content = std::fs::read_to_string(path)
-        .context("Failed to read pnpm-workspace.yaml")?;
-    
-    serde_yaml::from_str(&content)
-        .context("Failed to parse pnpm-workspace.yaml")
+    let content = std::fs::read_to_string(path).context("Failed to read pnpm-workspace.yaml")?;
+
+    serde_yaml::from_str(&content).context("Failed to parse pnpm-workspace.yaml")
 }

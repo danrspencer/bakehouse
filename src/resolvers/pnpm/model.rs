@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PnpmWorkspace {
     pub packages: Vec<String>,
@@ -14,7 +12,7 @@ pub struct PackageJson {
     pub dependencies: Option<std::collections::HashMap<String, String>>,
     #[serde(rename = "devDependencies")]
     pub dev_dependencies: Option<std::collections::HashMap<String, String>>,
-   pub engines: Option<Engines>,
+    pub engines: Option<Engines>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

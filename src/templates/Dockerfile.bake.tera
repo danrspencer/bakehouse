@@ -1,1 +1,16 @@
 FROM sample-monorepo
+
+WORKDIR /app
+
+COPY . /app/{{ path }}
+
+# Copy dependencies
+{% for dep in dependencies %}
+COPY --from={{ dep.name }} /app/{{ dep.path }} /app/{{ dep.path }}
+{% endfor %}
+
+# Install dependencies and build
+RUN pnpm install
+
+# Set default command
+CMD ["pnpm", "run", "start"]

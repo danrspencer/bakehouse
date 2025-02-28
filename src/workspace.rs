@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use tera::{self, Map};
 
 use crate::dockerfile::DockerfileTemplate;
 
@@ -16,7 +17,7 @@ pub trait PackageInfo {
     }
 }
 
-pub trait WorkspaceInfo {    
+pub trait WorkspaceInfo {
     fn root_package(&self) -> &dyn PackageInfo;
     fn packages(&self) -> Vec<&dyn PackageInfo>;
 }
@@ -27,7 +28,7 @@ pub struct Package {
     pub path: PathBuf,
     pub version: String,
     pub dependencies: HashMap<String, PathBuf>,
-    pub dockerfile_template: DockerfileTemplate
+    pub dockerfile_template: DockerfileTemplate,
 }
 
 pub struct Workspace {
@@ -39,9 +40,7 @@ pub struct Workspace {
 }
 
 fn sanitized_name(name: &str) -> String {
-    name.replace('@', "")
-    .replace('/', "-")
-    .to_lowercase()
+    name.replace('@', "").replace('/', "-").to_lowercase()
 }
 
 impl Workspace {
@@ -57,16 +56,14 @@ impl Workspace {
         };
 
         let mut package_paths: HashMap<String, PathBuf> = HashMap::new();
-        
+
         for package_info in workspace_info.packages() {
             package_paths.insert(package_info.sanitized_name(), package_info.path().clone());
         }
 
         for package_info in workspace_info.packages() {
             let mut deps = HashMap::new();
-            
-            deps.insert(root.sanitized_name(), root.path().clone());
-            
+
             for dep_name in package_info.dependencies() {
                 let sanitized_dep_name = sanitized_name(dep_name);
                 if let Some(dep_path) = package_paths.get(&sanitized_dep_name) {
@@ -74,21 +71,50 @@ impl Workspace {
                 }
             }
 
+            let mut dockerfile_template = package_info.dockerfile_template().clone();
+
+            dockerfile_template.context.insert("path", &package_info.path().strip_prefix(&workspace.path)
+            .unwrap_or(package_info.path())
+            .to_string_lossy()
+            .to_string());
+            
+            // Convert dependencies to a format that Tera can iterate over directly
+            let deps_vec: Vec<_> = deps.iter().map(|(name, path)| {
+                let relative_path = path.strip_prefix(&workspace.path)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .to_string();
+                
+                tera::Value::Object({
+                    let mut m = Map::new();
+                    m.insert("name".to_string(), tera::Value::String(name.clone()));
+                    m.insert("path".to_string(), tera::Value::String(relative_path));
+                    m
+                })
+            }).collect();
+            
+            dockerfile_template.context.insert("dependencies", &deps_vec);
+
+            // TODO - I don't think the workspace should capture this dependency here, we should do it as part of
+            // of the Tera file generation
+            deps.insert(root.sanitized_name(), root.path().clone());
+
             workspace.add_package(
                 package_info.sanitized_name(),
                 package_info.path().clone(),
                 package_info.version().to_string(),
                 deps,
-                package_info.dockerfile_template().clone()
+                dockerfile_template
             )
         }
 
         workspace
     }
 
-    fn add_package(&mut self, 
-        name: String, 
-        path: PathBuf, 
+    fn add_package(
+        &mut self,
+        name: String,
+        path: PathBuf,
         version: String,
         dependencies: HashMap<String, PathBuf>,
         dockerfile_template: DockerfileTemplate,
@@ -98,18 +124,20 @@ impl Workspace {
             path,
             version,
             dependencies,
-            dockerfile_template
+            dockerfile_template,
         };
         self.packages.insert(name, package);
     }
 
     pub fn get_dependencies(&self, package_name: &str) -> Vec<(String, PathBuf)> {
         if let Some(package) = self.packages.get(package_name) {
-            package.dependencies.iter()
+            package
+                .dependencies
+                .iter()
                 .map(|(name, path)| (name.clone(), path.clone()))
                 .collect()
         } else {
             vec![]
         }
     }
-} 
+}

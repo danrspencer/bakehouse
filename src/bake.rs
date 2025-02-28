@@ -1,9 +1,9 @@
-use serde::Serialize;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use hcl::Value;
 use indexmap::IndexMap;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 pub struct Target {
@@ -16,7 +16,14 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn new(package_path: &Path, workspace_root: &Path, dockerfile: String, tags: Vec<String>, depends_on: Vec<String>, contexts: HashMap<String, String>) -> Self {
+    pub fn new(
+        package_path: &Path,
+        workspace_root: &Path,
+        dockerfile: String,
+        tags: Vec<String>,
+        depends_on: Vec<String>,
+        contexts: HashMap<String, String>,
+    ) -> Self {
         // First get the package path relative to the workspace root
         let relative_path = package_path
             .strip_prefix(workspace_root)
@@ -40,17 +47,29 @@ impl Target {
     fn to_hcl(&self) -> Value {
         let mut map = IndexMap::new();
         map.insert("context".to_string(), Value::String(self.context.clone()));
-        map.insert("dockerfile".to_string(), Value::String(self.dockerfile.clone()));
-        map.insert("tags".to_string(), Value::Array(
-            self.tags.iter().map(|t| Value::String(t.clone())).collect()
-        ));
-        map.insert("depends_on".to_string(), Value::Array(
-            self.depends_on.iter().map(|d| Value::String(d.clone())).collect()
-        ));
+        map.insert(
+            "dockerfile".to_string(),
+            Value::String(self.dockerfile.clone()),
+        );
+        map.insert(
+            "tags".to_string(),
+            Value::Array(self.tags.iter().map(|t| Value::String(t.clone())).collect()),
+        );
+        map.insert(
+            "depends_on".to_string(),
+            Value::Array(
+                self.depends_on
+                    .iter()
+                    .map(|d| Value::String(d.clone()))
+                    .collect(),
+            ),
+        );
 
         // Add contexts if present
         if !self.contexts.is_empty() {
-            let contexts_map = self.contexts.iter()
+            let contexts_map = self
+                .contexts
+                .iter()
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
             map.insert("contexts".to_string(), Value::Object(contexts_map));
@@ -85,7 +104,7 @@ impl BakeFile {
             let dockerfile_path = PathBuf::from(&target.context).join(&target.dockerfile);
             fs::write(dockerfile_path, contents).expect("Failed to write Dockerfile");
         }
-        
+
         self.target.insert(name, target);
     }
 
@@ -100,10 +119,14 @@ impl BakeFile {
         for (name, group) in &self.group {
             output.push_str(&format!("group \"{}\" {{\n", name));
             output.push_str("  targets = [");
-            output.push_str(&group.targets.iter()
-                .map(|t| format!("\"{}\"", t))
-                .collect::<Vec<_>>()
-                .join(", "));
+            output.push_str(
+                &group
+                    .targets
+                    .iter()
+                    .map(|t| format!("\"{}\"", t))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
             output.push_str("]\n}\n\n");
         }
 
@@ -112,20 +135,28 @@ impl BakeFile {
             output.push_str(&format!("target \"{}\" {{\n", name));
             output.push_str(&format!("  context = \"{}\"\n", target.context));
             output.push_str(&format!("  dockerfile = \"{}\"\n", target.dockerfile));
-            
+
             output.push_str("  tags = [");
-            output.push_str(&target.tags.iter()
-                .map(|t| format!("\"{}\"", t))
-                .collect::<Vec<_>>()
-                .join(", "));
+            output.push_str(
+                &target
+                    .tags
+                    .iter()
+                    .map(|t| format!("\"{}\"", t))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
             output.push_str("]\n");
 
             if !target.depends_on.is_empty() {
                 output.push_str("  depends_on = [");
-                output.push_str(&target.depends_on.iter()
-                    .map(|d| format!("\"{}\"", d))
-                    .collect::<Vec<_>>()
-                    .join(", "));
+                output.push_str(
+                    &target
+                        .depends_on
+                        .iter()
+                        .map(|d| format!("\"{}\"", d))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
                 output.push_str("]\n");
             }
 
@@ -137,7 +168,7 @@ impl BakeFile {
                 }
                 output.push_str("  }\n");
             }
-            
+
             output.push_str("}\n\n");
         }
 
